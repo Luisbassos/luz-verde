@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pase",
-  description: "Marcador de asistencia compartido por enlace",
+  title: "Polla Partidos",
+  description: "Polla Partidos",
 };
 
 export default function RootLayout({
