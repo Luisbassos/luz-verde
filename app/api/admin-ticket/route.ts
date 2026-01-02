@@ -110,10 +110,16 @@ export async function POST(req: NextRequest) {
   }
 
   // Finalizar ventana
-  await supabaseAdmin
+  const { error: windowUpdateError } = await supabaseAdmin
     .from("event_windows")
     .update({ is_active: false, status: "finished" })
     .eq("id", window.id);
+  if (windowUpdateError) {
+    return NextResponse.json(
+      { ok: false, error: "No se pudo finalizar la ventana" },
+      { status: 500 },
+    );
+  }
 
-  return NextResponse.json({ ok: true, image_url: imageUrl });
+  return NextResponse.json({ ok: true, image_url: filePath });
 }
