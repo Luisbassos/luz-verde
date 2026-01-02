@@ -21,7 +21,9 @@ export const authOptions: NextAuthOptions = {
         .select("email")
         .eq("email", email)
         .maybeSingle();
-      return Boolean(data);
+      if (data) return true;
+      // Redirige con el correo para mostrar mensaje claro en la UI
+      return `/?denied=${encodeURIComponent(email)}`;
     },
     async session({ session, token }) {
       if (session.user) {
