@@ -37,13 +37,15 @@ export async function GET(req: NextRequest) {
   const role = await getUserRole(session.user.email);
 
   if (listAll) {
-    if (role !== "admin") {
-      return NextResponse.json({ ok: false, error: "Solo admin" }, { status: 403 });
-    }
-    const { data, error } = await supabaseAdmin
+    const query = supabaseAdmin
       .from("event_windows")
       .select("id,start_date,end_date,is_active,status,min_odds,max_odds,created_at")
       .order("created_at", { ascending: false });
+    // Para no admins, solo mostrar abiertas o finalizadas
+    const { data, error } =
+      role === "admin"
+        ? await query
+        : await query.in("status", ["open", "finished"]);
     if (error) {
       return NextResponse.json(
         { ok: false, error: "No se pudo obtener las fechas" },

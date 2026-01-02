@@ -54,6 +54,32 @@ const statusLabels: Record<Bet["status"], string> = {
   no_show: "No presentada",
 };
 
+const statusBadge: Record<
+  Bet["status"],
+  { icon: string; label: string; className: string }
+> = {
+  pending: {
+    icon: "⏳",
+    label: "Esperando Apuesta",
+    className: "bg-amber-50 text-amber-700 border-amber-200",
+  },
+  ok: {
+    icon: "✅",
+    label: "OK",
+    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  },
+  nok: {
+    icon: "❌",
+    label: "NOK",
+    className: "bg-red-50 text-red-700 border-red-200",
+  },
+  no_show: {
+    icon: "⚠️",
+    label: "No presentada",
+    className: "bg-slate-100 text-slate-700 border-slate-200",
+  },
+};
+
 const windowStatusLabels: Record<string, string> = {
   open: "En juego",
   aborted: "Desactivada",
@@ -227,6 +253,24 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
   }, [participants, sessionUser.email]);
 
   const roleLabel = isAdmin ? "Admin" : "Participante";
+
+  const renderStatusBadge = (status: Bet["status"]) => {
+    const cfg = statusBadge[status];
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${cfg.className}`}
+      >
+        <span aria-hidden>{cfg.icon}</span>
+        <span>{cfg.label}</span>
+      </span>
+    );
+  };
+
+  const renderStatusOrEmpty = (bet?: Bet | null) => {
+
+    const status = bet?.status ?? "pending";
+    return renderStatusBadge(status);
+  };
 
   const participantPercent = (participantId: string) => {
     if (summaryTotalWindows === 0) return 0;
@@ -435,9 +479,7 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
 
   useEffect(() => {
     void fetchBets();
-    if (isAdmin) {
-      void loadSummary();
-    }
+    void loadSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowInfo?.id, selectedWindowId]);
 
@@ -478,6 +520,7 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
     }
     setFormMessage("Apuesta guardada");
     void fetchBets();
+    void loadSummary();
   };
 
   const handleStatusChange = async (participantId: string, status: Bet["status"]) => {
@@ -498,6 +541,7 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
     setSavingStatus((prev) => ({ ...prev, [participantId]: false }));
     if (res.ok) {
       void fetchBets();
+      void loadSummary();
     }
   };
 
@@ -587,16 +631,16 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
             </span>
           )}
           <div className="flex items-center gap-3">
-            <div className="text-right">
-              <div className="text-sm font-semibold text-slate-900">
-                {displayName}
-              </div>
-              <div className="text-xs text-slate-500">
-                {sessionUser.email} · {roleLabel}
-              </div>
-              {myBetStatus && (
-                <div className="text-xs font-semibold text-emerald-700">
-                  Mi estado: {statusLabels[myBetStatus]}
+              <div className="text-right">
+                <div className="text-sm font-semibold text-slate-900">
+                  {displayName}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {sessionUser.email} · {roleLabel}
+                </div>
+                {myBetStatus && (
+                <div className="mt-1 text-xs font-semibold text-emerald-700">
+                  Mi estado: {renderStatusBadge(myBetStatus)}
                 </div>
               )}
             </div>
@@ -666,19 +710,19 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
                               return (
                                 <td
                                   key={`${w.id}-${p.id}`}
-                      className="px-3 py-3 text-center text-xs text-slate-800"
-                    >
-                      {bet ? statusLabels[bet.status] : "Sin apuesta"}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )}
+                                  className="px-3 py-3 text-center text-xs text-slate-800"
+                                >
+                                  {renderStatusOrEmpty(bet)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
           {/* Mi apuesta */}
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
@@ -1268,9 +1312,9 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
                               ))}
                             </select>
                           ) : (
-                            <span className="text-sm text-slate-800">
-                              {bet?.status ? statusLabels[bet.status] : "Sin apuesta"}
-                            </span>
+                            <div className="text-sm text-slate-800">
+                              {renderStatusOrEmpty(bet)}
+                            </div>
                           )}
                     </td>
                         <td className="px-3 py-3 text-sm text-slate-800">

@@ -12,24 +12,34 @@ type CacheRow = {
 function filterOdds(data: any[], min: number, max: number) {
   return (data || [])
     .map((event) => {
-      const seen = new Set<string>();
-      const markets = (event.bookmakers || [])
-        .flatMap((b: any) => b.markets || [])
-        .flatMap((m: any) =>
+      const bestByOutcome: Record<
+        string,
+        {
+          market: string;
+          name: string;
+          price: number;
+        }
+      > = {};
+
+      (event.bookmakers || []).forEach((b: any) => {
+        (b.markets || []).forEach((m: any) => {
           (m.outcomes || [])
             .filter((o: any) => o.price >= min && o.price <= max)
-            .map((o: any) => ({
-              market: m.key,
-              name: o.name,
-              price: o.price,
-            })),
-        )
-        .filter((m: any) => {
-          const key = `${m.market}-${m.name}-${m.price}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
+            .forEach((o: any) => {
+              const key = o.name;
+              const existing = bestByOutcome[key];
+              if (!existing || o.price > existing.price) {
+                bestByOutcome[key] = {
+                  market: m.key,
+                  name: o.name,
+                  price: o.price,
+                };
+              }
+            });
         });
+      });
+
+      const markets = Object.values(bestByOutcome).sort((a, b) => b.price - a.price);
       return {
         id: event.id,
         sport: event.sport_key,
