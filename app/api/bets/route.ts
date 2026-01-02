@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getUserRole } from "@/lib/roles";
 
-type BetStatus = "pending" | "ok" | "nok" | "no_show";
+type BetStatus = "pending" | "in_game" | "ok" | "nok" | "no_show";
 
 type WindowRow = {
   id: string;
@@ -155,7 +155,7 @@ export async function POST(req: NextRequest) {
   }
 
   const statusToUse: BetStatus =
-    role === "admin" && status ? status : "pending";
+    role === "admin" && status ? status : "in_game";
 
   let finalImagePath = betImageUrl || null;
   if (betImageData) {

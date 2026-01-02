@@ -19,7 +19,7 @@ type Bet = {
   bet_image_url?: string | null;
   bet_link?: string | null;
   odds?: number | null;
-  status: "pending" | "ok" | "nok" | "no_show";
+  status: "pending" | "in_game" | "ok" | "nok" | "no_show";
 };
 
 type OddsCard = {
@@ -41,14 +41,16 @@ type OddsCard = {
 };
 
 const statusOptions: Array<{ value: Bet["status"]; label: string }> = [
-  { value: "pending", label: "En juego" },
+  { value: "pending", label: "En espera" },
+  { value: "in_game", label: "Registrada" },
   { value: "ok", label: "OK" },
   { value: "nok", label: "NOK" },
   { value: "no_show", label: "No presentada" },
 ];
 
 const statusLabels: Record<Bet["status"], string> = {
-  pending: "En juego",
+  pending: "En espera",
+  in_game: "Registrada",
   ok: "OK",
   nok: "NOK",
   no_show: "No presentada",
@@ -60,7 +62,12 @@ const statusBadge: Record<
 > = {
   pending: {
     icon: "⏳",
-    label: "Esperando Apuesta",
+    label: "En espera",
+    className: "bg-slate-50 text-slate-600 border-slate-200",
+  },
+  in_game: {
+    icon: "📝",
+    label: "Registrada",
     className: "bg-amber-50 text-amber-700 border-amber-200",
   },
   ok: {
@@ -267,9 +274,36 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
   };
 
   const renderStatusOrEmpty = (bet?: Bet | null) => {
-
     const status = bet?.status ?? "pending";
-    return renderStatusBadge(status);
+    const badge = renderStatusBadge(status);
+    const showPopup = status !== "pending" && status !== "no_show";
+    const hasDetails = bet && (bet.odds || bet.bet_link || bet.bet_image_url);
+    if (!showPopup || !hasDetails) return badge;
+
+    return (
+      <div className="group relative inline-block">
+        {badge}
+        <div className="pointer-events-none absolute left-1/2 z-10 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md border border-slate-200 bg-white p-3 text-left text-xs text-slate-700 shadow-lg group-hover:block">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Detalles apuesta
+          </p>
+          {bet?.odds && <p className="text-sm text-slate-800">Cuota: {bet.odds}</p>}
+          {bet?.bet_link && (
+            <p className="mt-1 text-xs">
+              Link:{" "}
+              <a className="text-emerald-700 underline" href={bet.bet_link} target="_blank" rel="noreferrer">
+                Ver
+              </a>
+            </p>
+          )}
+          {bet?.bet_image_url && (
+            <div className="mt-2 overflow-hidden rounded border border-slate-200">
+              <img src={bet.bet_image_url} alt="Apuesta" className="max-h-28 w-full object-contain" />
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const participantPercent = (participantId: string) => {
