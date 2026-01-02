@@ -60,6 +60,7 @@ const windowStatusLabels: Record<string, string> = {
   sin_fecha: "Sin fecha",
   closed: "Cerrada",
   upcoming: "Próxima",
+  finished: "Finalizada",
 };
 
 export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
@@ -75,8 +76,15 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
     start_date?: string;
     end_date?: string;
     id?: string;
-    status?: "open" | "closed" | "upcoming" | "sin_fecha";
-  } | null>(null);
+    status?: string;
+    min_odds?: number | null;
+    max_odds?: number | null;
+  } | null>({
+    start_date: startDate,
+    end_date: endDate,
+    min_odds: 1.45,
+    max_odds: 3,
+  });
   const [savingWindow, setSavingWindow] = useState(false);
   const [windowError, setWindowError] = useState<string | null>(null);
   const [windowSuccess, setWindowSuccess] = useState<string | null>(null);
@@ -84,8 +92,28 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
 
   const [oddsCards, setOddsCards] = useState<OddsCard[]>([
     {
-      label: "Champions League",
-      sport: "soccer_uefa_champs_league",
+      label: "La Liga (ESP)",
+      sport: "soccer_spain_la_liga",
+      min: 1.45,
+      max: 3,
+      start: startDate,
+      end: endDate,
+      odds: [],
+      status: "idle",
+    },
+    {
+      label: "Premier League (ENG)",
+      sport: "soccer_epl",
+      min: 1.45,
+      max: 3,
+      start: startDate,
+      end: endDate,
+      odds: [],
+      status: "idle",
+    },
+    {
+      label: "NFL",
+      sport: "americanfootball_nfl",
       min: 1.45,
       max: 3,
       start: startDate,
@@ -104,8 +132,8 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
       status: "idle",
     },
     {
-      label: "Premier League",
-      sport: "soccer_epl",
+      label: "Bundesliga (GER)",
+      sport: "soccer_germany_bundesliga",
       min: 1.45,
       max: 3,
       start: startDate,
@@ -139,10 +167,22 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
       status: string;
     }>
   >([]);
+  const [windowsLoaded, setWindowsLoaded] = useState(false);
   const [newParticipantEmail, setNewParticipantEmail] = useState("");
   const [newParticipantName, setNewParticipantName] = useState("");
   const [savingParticipant, setSavingParticipant] = useState(false);
   const [participantMessage, setParticipantMessage] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryWindows, setSummaryWindows] = useState<
+    Array<{
+      id: string;
+      label: string;
+      status: string;
+      betMap: Record<string, Bet | undefined>;
+    }>
+  >([]);
+  const [summaryTotalWindows, setSummaryTotalWindows] = useState(0);
+  const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const handlePasteImage = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const items = e.clipboardData.items;
     for (let i = 0; i < items.length; i += 1) {
@@ -172,14 +212,8 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
 
   const formatRange = (start?: string, end?: string) => {
     if (!start || !end) return null;
-    const formatter = new Intl.DateTimeFormat("es-CL", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      timeZone: "UTC",
-    });
-    const startStr = formatter.format(parseDate(start));
-    const endStr = formatter.format(parseDate(end));
+    const startStr = parseDate(start).toISOString().split("T")[0];
+    const endStr = parseDate(end).toISOString().split("T")[0];
     return `${startStr} a ${endStr}`;
   };
 
@@ -194,31 +228,53 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
 
   const roleLabel = isAdmin ? "Admin" : "Participante";
 
-  useEffect(() => {
-  const fetchWindow = async () => {
-      const res = await fetch("/api/windows");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.window) {
-          setWindowInfo({
-            start_date: data.window.start_date,
-            end_date: data.window.end_date,
-            id: data.window.id,
-            status: data.status,
-          });
-          setOddsCards((prev) =>
-            prev.map((c) => ({
-              ...c,
-              start: data.window.start_date,
-              end: data.window.end_date,
-              status: "idle",
-            })),
-          );
-        } else {
-          setWindowInfo(null);
-        }
+  const participantPercent = (participantId: string) => {
+    if (summaryTotalWindows === 0) return 0;
+    let okCount = 0;
+    summaryWindows.forEach((w) => {
+      const bet = w.betMap[participantId];
+      if (bet?.status === "ok") {
+        okCount += 1;
       }
-    };
+    });
+    return Math.round((okCount / summaryTotalWindows) * 100);
+  };
+
+  const fetchWindow = async () => {
+    const res = await fetch("/api/windows");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.window) {
+        setWindowInfo({
+          start_date: data.window.start_date,
+          end_date: data.window.end_date,
+          id: data.window.id,
+          status: data.status,
+          min_odds: data.window.min_odds,
+          max_odds: data.window.max_odds,
+        });
+        setOddsCards((prev) =>
+          prev.map((c) => ({
+            ...c,
+            start: data.window.start_date,
+            end: data.window.end_date,
+            min: data.window.min_odds ?? c.min,
+            max: data.window.max_odds ?? c.max,
+            status: "idle",
+          })),
+        );
+      } else {
+        setWindowInfo({
+          start_date: startDate,
+          end_date: endDate,
+          min_odds: 1.45,
+          max_odds: 3,
+        });
+      }
+    }
+  };
+
+  useEffect(() => {
     void fetchWindow();
   }, []);
 
@@ -266,21 +322,82 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
       void loadOdds(idx);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowInfo?.start_date, windowInfo?.end_date]);
+  }, [windowInfo?.start_date, windowInfo?.end_date, windowInfo?.min_odds, windowInfo?.max_odds]);
 
   const fetchAllWindows = async () => {
     if (!isAdmin) return;
     const res = await fetch("/api/windows?all=1");
     if (res.ok) {
       const data = await res.json();
-      setAllWindows(
+      const mapped =
         (data.windows as Array<any>)?.map((w) => ({
           id: w.id,
           start_date: w.start_date,
           end_date: w.end_date,
           status: w.status,
-        })) || [],
+        })) || [];
+      setAllWindows(mapped);
+      setWindowsLoaded(true);
+      if (!selectedWindowId) {
+        const preferred = mapped.find((w) => w.status === "open" || w.status === "finished");
+        if (preferred) setSelectedWindowId(preferred.id);
+      }
+    }
+  };
+
+  const loadSummary = async () => {
+    setSummaryLoading(true);
+    try {
+      const resWin = await fetch("/api/windows?all=1");
+      if (!resWin.ok) {
+        setSummaryLoading(false);
+        return;
+      }
+      const dataWin = await resWin.json();
+      const activeOrFinished = (dataWin.windows as Array<any>).filter(
+        (w) => w.status === "open" || w.status === "finished",
       );
+
+      const summary: Array<{
+        id: string;
+        label: string;
+        status: string;
+        betMap: Record<string, Bet | undefined>;
+      }> = [];
+      setSummaryTotalWindows(activeOrFinished.length);
+      const participantsMap: Record<string, Participant> = {};
+
+      for (const w of activeOrFinished) {
+        const resBets = await fetch(`/api/bets?window_id=${w.id}`);
+        if (!resBets.ok) continue;
+        const dataBets = await resBets.json();
+        const betMap: Record<string, Bet | undefined> = {};
+        (dataBets.bets as Bet[] | undefined)?.forEach((b) => {
+          betMap[b.participant_id] = b;
+        });
+        (dataBets.participants as Participant[] | undefined)?.forEach((p) => {
+          participantsMap[p.id] = p;
+        });
+        summary.push({
+          id: w.id,
+          label: formatRange(w.start_date, w.end_date) || "",
+          status: w.status,
+          betMap,
+        });
+      }
+      setSummaryWindows(summary);
+      const newParticipants = Object.values(participantsMap);
+      const sameLength = newParticipants.length === participants.length;
+      const sameIds =
+        sameLength &&
+        newParticipants.every((p) =>
+          participants.some((prev) => prev.id === p.id && prev.name === p.name && prev.email === p.email),
+        );
+      if (!sameIds) {
+        setParticipants(newParticipants);
+      }
+    } finally {
+      setSummaryLoading(false);
     }
   };
 
@@ -288,7 +405,11 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
     setBetsLoading(true);
     setBetsError(null);
     const params = new URLSearchParams();
-    if (windowInfo?.id) params.append("window_id", windowInfo.id);
+    if (selectedWindowId) {
+      params.append("window_id", selectedWindowId);
+    } else if (windowInfo?.id) {
+      params.append("window_id", windowInfo.id);
+    }
     const res = await fetch(`/api/bets?${params.toString()}`, { cache: "no-store" });
     if (!res.ok) {
       setBetsError("No se pudo cargar apuestas");
@@ -314,9 +435,18 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
 
   useEffect(() => {
     void fetchBets();
-    void fetchAllWindows();
+    if (isAdmin) {
+      void loadSummary();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowInfo?.id, myParticipant?.id]);
+  }, [windowInfo?.id, selectedWindowId]);
+
+  useEffect(() => {
+    if (isAdmin && !windowsLoaded) {
+      void fetchAllWindows();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, windowsLoaded]);
 
   const handleSaveBet = async () => {
     setFormMessage(null);
@@ -376,12 +506,16 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
     setSavingWindow(true);
     setWindowError(null);
     setWindowSuccess(null);
+    const minOdds = windowInfo.min_odds ?? null;
+    const maxOdds = windowInfo.max_odds ?? null;
     const res = await fetch("/api/windows", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         start_date: windowInfo.start_date,
         end_date: windowInfo.end_date,
+        min_odds: minOdds,
+        max_odds: maxOdds,
       }),
     });
     setSavingWindow(false);
@@ -391,7 +525,9 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
       return;
     }
     setWindowSuccess("Fecha guardada");
-    void fetchBets();
+    await fetchWindow();
+    await fetchAllWindows();
+    await fetchBets();
   };
 
   const handleAdminTicket = async () => {
@@ -411,8 +547,10 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
     }
     setTicketMessage("Cartilla guardada y no_presentadas marcadas");
     setAdminTicketData("");
-    void fetchBets();
-    void fetchAllWindows();
+    await fetchAllWindows();
+    await fetchWindow();
+    await fetchBets();
+    await loadSummary();
   };
 
   const myBetStatus = myParticipant ? bets[myParticipant.id]?.status : undefined;
@@ -485,6 +623,63 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
             <span className="font-semibold"> Aweonao</span>.
           </p>
 
+              {summaryWindows.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-white px-4 py-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Participantes por fecha (en juego y finalizadas)
+                    </p>
+        {summaryLoading && (
+          <span className="text-xs font-semibold text-emerald-600">Actualizando...</span>
+        )}
+      </div>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full border-collapse text-sm">
+                      <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold">Participante</th>
+                          <th className="px-3 py-3 font-semibold text-center">% OK</th>
+                          {summaryWindows.map((w) => (
+                            <th key={w.id} className="px-3 py-3 font-semibold text-center">
+                              <div className="text-slate-800">{w.label || "Fecha"}</div>
+                              <div className="text-[11px] text-slate-500">
+                                {formatWindowStatus(w.status)}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+                      <tbody>
+                        {participants.map((p, idx) => (
+                          <tr
+                            key={p.id}
+                            className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}
+                          >
+                            <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+                              {p.name}
+                            </td>
+                            <td className="px-3 py-3 text-center text-xs text-slate-800">
+                              {participantPercent(p.id)}%
+                            </td>
+                            {summaryWindows.map((w) => {
+                              const bet = w.betMap[p.id];
+                              return (
+                                <td
+                                  key={`${w.id}-${p.id}`}
+                      className="px-3 py-3 text-center text-xs text-slate-800"
+                    >
+                      {bet ? statusLabels[bet.status] : "Sin apuesta"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )}
+
           {/* Mi apuesta */}
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
             <div className="flex items-center justify-between">
@@ -492,6 +687,11 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                   Mi apuesta
                 </p>
+                {windowInfo && (
+                  <p className="text-[11px] text-slate-500">
+                    Cuota mínima: {windowInfo.min_odds ?? "-"} · máxima: {windowInfo.max_odds ?? "-"}
+                  </p>
+                )}
               </div>
               {!windowIsOpen && (
                 <span className="text-xs font-semibold text-red-600">
@@ -703,40 +903,112 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
                   </span>
                 )}
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <label className="text-sm text-emerald-900">
-                  Inicio
-                  <input
-                    type="date"
-                    value={windowInfo?.start_date || ""}
-                    onChange={(e) =>
-                      setWindowInfo((prev) => ({ ...prev, start_date: e.target.value }))
-                    }
-                    className="mt-1 w-full rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="text-sm text-emerald-900">
-                  Término
-                  <input
-                    type="date"
-                    value={windowInfo?.end_date || ""}
-                    onChange={(e) =>
-                      setWindowInfo((prev) => ({ ...prev, end_date: e.target.value }))
-                    }
-                    className="mt-1 w-full rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
-                  />
-                </label>
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    onClick={saveWindow}
-                    disabled={savingWindow}
-                    className="inline-flex w-full items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:opacity-60"
-                  >
-                    {savingWindow ? "Guardando..." : "Guardar fecha"}
-                  </button>
+              {windowInfo?.id ? (
+                <div className="grid gap-3 md:grid-cols-5">
+                  <div className="text-sm text-emerald-900">
+                    Inicio
+                    <p className="mt-1 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm">
+                      {windowInfo.start_date}
+                    </p>
+                  </div>
+                  <div className="text-sm text-emerald-900">
+                    Término
+                    <p className="mt-1 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm">
+                      {windowInfo.end_date}
+                    </p>
+                  </div>
+                  <div className="text-sm text-emerald-900">
+                    Cuota mínima
+                    <p className="mt-1 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm">
+                      {windowInfo.min_odds ?? "-"}
+                    </p>
+                  </div>
+                  <div className="text-sm text-emerald-900">
+                    Cuota máxima
+                    <p className="mt-1 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm">
+                      {windowInfo.max_odds ?? "-"}
+                    </p>
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex w-full items-center justify-center rounded-md bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-500"
+                    >
+                      Fecha en juego
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-5">
+                  <label className="text-sm text-emerald-900">
+                    Inicio
+                    <input
+                      type="date"
+                      value={windowInfo?.start_date || ""}
+                      onChange={(e) =>
+                        setWindowInfo((prev) => ({ ...prev, start_date: e.target.value }))
+                      }
+                      className="mt-1 w-full rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-sm text-emerald-900">
+                    Término
+                    <input
+                      type="date"
+                      value={windowInfo?.end_date || ""}
+                      onChange={(e) =>
+                        setWindowInfo((prev) => ({ ...prev, end_date: e.target.value }))
+                      }
+                      className="mt-1 w-full rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-sm text-emerald-900">
+                    Cuota mínima
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      value={windowInfo?.min_odds ?? ""}
+                      onChange={(e) =>
+                        setWindowInfo((prev) => ({
+                          ...prev,
+                          min_odds: e.target.value ? Number(e.target.value) : null,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
+                      placeholder="1.45"
+                    />
+                  </label>
+                  <label className="text-sm text-emerald-900">
+                    Cuota máxima
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      value={windowInfo?.max_odds ?? ""}
+                      onChange={(e) =>
+                        setWindowInfo((prev) => ({
+                          ...prev,
+                          max_odds: e.target.value ? Number(e.target.value) : null,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
+                      placeholder="3.00"
+                    />
+                  </label>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={saveWindow}
+                      disabled={savingWindow}
+                      className="inline-flex w-full items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:opacity-60"
+                    >
+                      {savingWindow ? "Guardando..." : "Guardar fecha"}
+                    </button>
+                  </div>
+                </div>
+              )}
               {windowError && <p className="text-sm text-red-600">{windowError}</p>}
 
               <div className="grid gap-3 md:grid-cols-3 items-end">
@@ -807,17 +1079,21 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
                           {formatWindowStatus(w.status)}
                         </td>
                           <td className="px-2 py-2">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await fetch(`/api/windows?id=${w.id}`, { method: "DELETE" });
-                                await fetchAllWindows();
-                                await fetchBets();
-                              }}
-                              className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700 transition hover:bg-red-100"
-                            >
-                              Abortar
-                            </button>
+                            {w.status !== "finished" && w.status !== "aborted" ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await fetch(`/api/windows?id=${w.id}`, { method: "DELETE" });
+                                  await fetchAllWindows();
+                                  await fetchBets();
+                                }}
+                                className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700 transition hover:bg-red-100"
+                              >
+                                Abortar
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500">-</span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -913,7 +1189,7 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
           )}
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                   Apuestas por participante
@@ -924,11 +1200,27 @@ export function Dashboard({ sessionUser, isAdmin }: DashboardProps) {
                   </p>
                 )}
               </div>
-              {betsLoading && (
-                <span className="text-xs font-semibold text-emerald-600">
-                  Cargando...
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                {isAdmin && (
+                  <select
+                    value={selectedWindowId || ""}
+                    onChange={(e) => setSelectedWindowId(e.target.value || null)}
+                    className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                  >
+                    <option value="">Ventana activa</option>
+                    {allWindows.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {formatRange(w.start_date, w.end_date)} · {formatWindowStatus(w.status)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {betsLoading && (
+                  <span className="text-xs font-semibold text-emerald-600">
+                    Cargando...
+                  </span>
+                )}
+              </div>
             </div>
             {betsError && <p className="mt-2 text-sm text-red-600">{betsError}</p>}
             <div className="mt-3 overflow-x-auto rounded-md border border-slate-200 bg-white">

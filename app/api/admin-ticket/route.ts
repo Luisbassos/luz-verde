@@ -73,15 +73,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: signed } = await supabaseAdmin.storage
-    .from("bets")
-    .createSignedUrl(filePath, 60 * 60); // 1h
-
-  const imageUrl = signed?.signedUrl;
-
   const { error: ticketError } = await supabaseAdmin.from("admin_tickets").insert({
     window_id: window.id,
-    image_url: imageUrl,
+    image_url: filePath,
   });
   if (ticketError) {
     return NextResponse.json(
@@ -114,6 +108,12 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+
+  // Finalizar ventana
+  await supabaseAdmin
+    .from("event_windows")
+    .update({ is_active: false, status: "finished" })
+    .eq("id", window.id);
 
   return NextResponse.json({ ok: true, image_url: imageUrl });
 }

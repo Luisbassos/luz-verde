@@ -12,7 +12,9 @@ type CacheRow = {
 function filterOdds(data: any[], min: number, max: number) {
   return (data || [])
     .map((event) => {
-      const markets = (event.bookmakers?.[0]?.markets || [])
+      const seen = new Set<string>();
+      const markets = (event.bookmakers || [])
+        .flatMap((b: any) => b.markets || [])
         .flatMap((m: any) =>
           (m.outcomes || [])
             .filter((o: any) => o.price >= min && o.price <= max)
@@ -21,7 +23,13 @@ function filterOdds(data: any[], min: number, max: number) {
               name: o.name,
               price: o.price,
             })),
-        );
+        )
+        .filter((m: any) => {
+          const key = `${m.market}-${m.name}-${m.price}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
       return {
         id: event.id,
         sport: event.sport_key,
@@ -36,9 +44,20 @@ function filterOdds(data: any[], min: number, max: number) {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const sport = searchParams.get("sport") || "soccer_uefa_champs_league";
-  const minOdds = Number(searchParams.get("minOdds") ?? 1.45);
-  const maxOdds = Number(searchParams.get("maxOdds") ?? 3);
+  const sport = searchParams.get("sport") || "soccer_spain_la_liga";
+  let minOdds = Number(searchParams.get("minOdds") ?? NaN);
+  let maxOdds = Number(searchParams.get("maxOdds") ?? NaN);
+
+  if (Number.isNaN(minOdds) || Number.isNaN(maxOdds)) {
+    const { data: windowRow } = await supabaseAdmin
+      .from("event_windows")
+      .select("min_odds,max_odds")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .maybeSingle();
+    minOdds = Number.isNaN(minOdds) ? windowRow?.min_odds ?? 1.45 : minOdds;
+    maxOdds = Number.isNaN(maxOdds) ? windowRow?.max_odds ?? 3 : maxOdds;
+  }
 
   const startParam = searchParams.get("start_date");
   const endParam = searchParams.get("end_date");

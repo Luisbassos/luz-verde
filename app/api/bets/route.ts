@@ -14,18 +14,23 @@ type WindowRow = {
   is_active: boolean;
 };
 
-async function getOpenWindow(windowId?: string): Promise<WindowRow | null> {
-  const query = supabaseAdmin
+async function getWindow(windowId?: string, includeInactive = false): Promise<WindowRow | null> {
+  let query = supabaseAdmin
     .from("event_windows")
     .select("id,start_date,end_date,is_active")
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1);
+    .order("created_at", { ascending: false });
 
-  const { data, error } = windowId
-    ? await query.eq("id", windowId).maybeSingle()
-    : await query.maybeSingle();
+  if (windowId) {
+    query = query.eq("id", windowId);
+  } else if (!includeInactive) {
+    query = query.eq("is_active", true);
+  }
 
+  if (!windowId) {
+    query = query.limit(1);
+  }
+
+  const { data, error } = windowId ? await query.maybeSingle() : await query.limit(1).maybeSingle();
   if (error || !data) return null;
   return data as WindowRow;
 }
@@ -44,7 +49,7 @@ export async function GET(req: NextRequest) {
   }
 
   const windowIdParam = new URL(req.url).searchParams.get("window_id");
-  const window = await getOpenWindow(windowIdParam || undefined);
+  const window = await getWindow(windowIdParam || undefined, Boolean(windowIdParam));
   if (!window) {
     return NextResponse.json({ ok: true, window: null, bets: [], participants: [] });
   }
@@ -67,6 +72,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Error cargando apuestas" }, { status: 500 });
   }
 
+  const signedBets = await Promise.all(
+    (bets || []).map(async (bet) => {
+      if (!bet.bet_image_url) return bet;
+      if (bet.bet_image_url.startsWith("http")) return bet;
+      const { data: signed } = await supabaseAdmin.storage
+        .from("bets")
+        .createSignedUrl(bet.bet_image_url, 60 * 60);
+      return { ...bet, bet_image_url: signed?.signedUrl || bet.bet_image_url };
+    }),
+  );
+
   const role = await getUserRole(session.user.email);
   return NextResponse.json({
     ok: true,
@@ -74,7 +90,7 @@ export async function GET(req: NextRequest) {
     window_id: window.id,
     window,
     participants,
-    bets,
+    bets: signedBets,
   });
 }
 
@@ -86,7 +102,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const betLink = body?.bet_link as string | null;
-  const betImageUrl = body?.bet_image_url as string | null;
+  const betImageUrl = body?.bet_image_url as string | null; // puede venir como path previo
   const betImageData = body?.bet_image_data as string | null;
   const odds = body?.odds as number | null;
   const status = body?.status as BetStatus | undefined;
@@ -94,16 +110,24 @@ export async function POST(req: NextRequest) {
   const windowId = body?.window_id as string | null;
 
   const role = await getUserRole(session.user.email);
-  if (!betLink && !betImageUrl) {
-    return NextResponse.json(
-      { ok: false, error: "Debes enviar imagen o link" },
-      { status: 400 },
-    );
+  const hasEvidence = Boolean(betLink || betImageUrl || betImageData);
+  const hasStatusUpdate = typeof status === "string";
+
+  if (!hasEvidence) {
+    if (role !== "admin" || !hasStatusUpdate) {
+      return NextResponse.json(
+        { ok: false, error: "Debes enviar imagen o link" },
+        { status: 400 },
+      );
+    }
   }
 
-  const window = await getOpenWindow(windowId || undefined);
+  const window = await getWindow(windowId || undefined, role === "admin");
   if (!window) {
-    return NextResponse.json({ ok: false, error: "No hay ventana abierta" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: role === "admin" ? "No se encontró la ventana" : "No hay ventana abierta" },
+      { status: 400 },
+    );
   }
 
   // resolve participant
@@ -133,7 +157,7 @@ export async function POST(req: NextRequest) {
   const statusToUse: BetStatus =
     role === "admin" && status ? status : "pending";
 
-  let finalImageUrl = betImageUrl;
+  let finalImagePath = betImageUrl || null;
   if (betImageData) {
     const parsed = parseDataUrl(betImageData);
     if (!parsed) {
@@ -152,10 +176,7 @@ export async function POST(req: NextRequest) {
         { status: 500 },
       );
     }
-    const { data: signed } = await supabaseAdmin.storage
-      .from("bets")
-      .createSignedUrl(filePath, 60 * 60); // 1h
-    finalImageUrl = signed?.signedUrl || filePath;
+    finalImagePath = filePath;
   }
 
   const { error } = await supabaseAdmin.from("bets").upsert(
@@ -163,7 +184,7 @@ export async function POST(req: NextRequest) {
       participant_id: participantId,
       window_id: window.id,
       bet_link: betLink,
-      bet_image_url: finalImageUrl,
+      bet_image_url: finalImagePath,
       odds,
       status: statusToUse,
     },
