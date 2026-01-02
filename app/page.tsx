@@ -1,7 +1,6 @@
 'use client';
 
 import Image from "next/image";
-import { useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { LoginSection } from "@/components/LoginSection";
 import { Dashboard } from "@/components/Dashboard";
@@ -9,7 +8,9 @@ import { Dashboard } from "@/components/Dashboard";
 export default function Home() {
   const { data: session } = useSession();
 
-  const isAdmin = session?.user && (session.user as any).role === "admin";
+  const isAdmin = Boolean(
+    session?.user && (session.user as { role?: string }).role === "admin",
+  );
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
